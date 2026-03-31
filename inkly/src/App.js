@@ -30,6 +30,11 @@ function clearSession() {
   localStorage.removeItem("token");
 }
 
+function persistSession(user, setUser) {
+  saveSession(user);
+  setUser(user);
+}
+
 function Avatar({ user, size = 40, className = "" }) {
   const colors = {
     "#7c3aed": "bg-violet-600",
@@ -50,6 +55,15 @@ function Avatar({ user, size = 40, className = "" }) {
       style={{ width: size, height: size }}
     >
       {initials}
+    </div>
+  );
+}
+
+function CountPill({ label, value }) {
+  return (
+    <div className={`${glassCard} px-4 py-3 text-center min-w-[92px]`}>
+      <p className="text-white font-semibold">{value}</p>
+      <p className="text-gray-500 text-xs uppercase tracking-[0.18em] mt-1">{label}</p>
     </div>
   );
 }
@@ -76,6 +90,36 @@ function Input({ label, value, onChange, placeholder, type = "text", prefix }) {
           }`}
         />
       </div>
+    </div>
+  );
+}
+
+function FilePicker({ label, accept, uploading, fileName, onSelect, preview }) {
+  return (
+    <div className={`${glassCard} p-4`}>
+      <div className="flex items-center justify-between gap-4 mb-3">
+        <div>
+          <p className="text-white text-sm font-semibold">{label}</p>
+          <p className="text-gray-500 text-xs mt-1">
+            {fileName || "Choose from your device"}
+          </p>
+        </div>
+        <label className="px-4 py-2 rounded-2xl text-sm font-semibold text-white cursor-pointer transition-all duration-200 active:scale-95 hover:shadow-lg hover:shadow-blue-900/20" style={{ background: "linear-gradient(135deg, #334155, #2563eb)" }}>
+          {uploading ? "Uploading..." : "Choose File"}
+          <input
+            type="file"
+            accept={accept}
+            className="hidden"
+            disabled={uploading}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onSelect(file);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      {preview}
     </div>
   );
 }
@@ -283,6 +327,107 @@ function SearchOverlay({ query, open, onClose, onNavigate }) {
   );
 }
 
+function CommentsSection({ postId, currentUser }) {
+  const [comments, setComments] = useState([]);
+  const [content, setContent] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadComments = useCallback(async () => {
+    setLoading(true);
+    let res = { data: [] };
+    try {
+      res = await axios.get(`${API}/comments/${postId}`);
+    } catch {}
+    setComments(res.data);
+    setLoading(false);
+  }, [postId]);
+
+  useEffect(() => {
+    loadComments();
+  }, [loadComments]);
+
+  const submitComment = async () => {
+    if (!currentUser?._id || !content.trim()) return;
+
+    setSubmitting(true);
+    try {
+      const res = await axios.post(`${API}/comments/${postId}`, {
+        userId: currentUser._id,
+        content,
+      });
+      setComments((prev) => [...prev, res.data]);
+      setContent("");
+    } catch {
+      return;
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="mt-14">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-white text-xl font-semibold" style={{ fontFamily: "Georgia, serif" }}>
+          Comments
+        </h3>
+        <span className="text-gray-500 text-sm">{comments.length}</span>
+      </div>
+
+      <div className={`${glassCard} p-4 mb-6`}>
+        <div className="flex gap-3">
+          <Avatar user={currentUser} size={36} />
+          <div className="flex-1">
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Add your thoughts..."
+              rows={3}
+              className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none focus:border-blue-500/50 resize-none transition-all duration-200"
+            />
+            <div className="flex justify-end mt-3">
+              <button
+                onClick={submitComment}
+                disabled={!content.trim() || submitting}
+                className="px-4 py-2 rounded-2xl text-sm font-semibold text-white transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: "linear-gradient(135deg, #334155, #2563eb)" }}
+              >
+                {submitting ? "Posting..." : "Post Comment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-gray-500 animate-pulse">Loading comments...</p>
+      ) : comments.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <p className="text-3xl mb-2">✦</p>
+          <p>No comments yet</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {comments.map((comment) => (
+            <div key={comment._id} className={`${glassCard} p-4`}>
+              <div className="flex items-start gap-3">
+                <Avatar user={comment.author} size={34} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-white text-sm font-semibold">{comment.author?.name || "Unknown"}</p>
+                    <p className="text-gray-500 text-xs">{timeAgo(comment.createdAt)}</p>
+                  </div>
+                  <p className="text-gray-300 text-sm mt-2 leading-relaxed">{comment.content}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Navbar({ user, onNavigate, searchQuery, setSearchQuery, searchOpen, setSearchOpen, view }) {
   const [dropOpen, setDropOpen] = useState(false);
   const dropRef = useRef(null);
@@ -395,11 +540,16 @@ function PostCard({ post, currentUser, onNavigate, onLike }) {
   const author = post.author || { _id: "", name: "Unknown", handle: "writer" };
   const liked = (post.likedBy || []).includes(currentUser?._id);
   const [sparkAnim, setSparkAnim] = useState(false);
+  const hasVisualMedia = Boolean(post.image || post.video);
 
   return (
     <article className="group bg-white/[0.03] border border-white/8 rounded-3xl overflow-hidden hover:border-blue-500/20 hover:bg-white/[0.05] hover:-translate-y-1 hover:scale-[1.02] transition-all duration-300">
       <div className="relative h-48 overflow-hidden cursor-pointer" onClick={() => onNavigate("post", post._id)}>
-        <img src={post.image || "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&q=80"} alt={post.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+        {post.video ? (
+          <video src={post.video} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" muted playsInline />
+        ) : (
+          <img src={post.image || "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&q=80"} alt={post.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+        )}
         <div className="absolute inset-0 bg-gradient-to-t from-gray-950/80 to-transparent" />
         <div className="absolute bottom-3 left-4 flex gap-2 flex-wrap">
           {(post.tags || []).slice(0, 2).map((tag) => (
@@ -407,7 +557,18 @@ function PostCard({ post, currentUser, onNavigate, onLike }) {
               {tag}
             </span>
           ))}
+          {post.audio && (
+            <span className="text-xs font-medium px-2.5 py-1 rounded-full text-white border border-white/10" style={{ background: "rgba(15,23,42,0.68)" }}>
+              Audio
+            </span>
+          )}
+          {post.video && (
+            <span className="text-xs font-medium px-2.5 py-1 rounded-full text-white border border-white/10" style={{ background: "rgba(15,23,42,0.68)" }}>
+              Video
+            </span>
+          )}
         </div>
+        {!hasVisualMedia && <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.16),transparent_42%),linear-gradient(180deg,#162033_0%,#0f172a_100%)]" />}
       </div>
 
       <div className="p-5">
@@ -441,7 +602,7 @@ function PostCard({ post, currentUser, onNavigate, onLike }) {
             <span>{post.likes || 0}</span>
           </button>
           <button onClick={() => onNavigate("post", post._id)} className="text-xs text-gray-600 hover:text-blue-400 transition-colors font-medium active:scale-95">
-            Read ->
+            Read 
           </button>
         </div>
       </div>
@@ -544,6 +705,12 @@ function Editor({ currentUser, onNavigate }) {
   const [content, setContent] = useState("");
   const [selectedTags, setSelectedTags] = useState([]);
   const [imageUrl, setImageUrl] = useState("");
+  const [audioUrl, setAudioUrl] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [imageName, setImageName] = useState("");
+  const [audioName, setAudioName] = useState("");
+  const [videoName, setVideoName] = useState("");
+  const [uploading, setUploading] = useState({ image: false, audio: false, video: false });
   const [saved, setSaved] = useState(false);
 
   const toggleTag = (tag) => {
@@ -554,6 +721,37 @@ function Editor({ currentUser, onNavigate }) {
         ? prev
         : [...prev, tag]
     );
+  };
+
+  const uploadMedia = async (file, kind) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    setUploading((prev) => ({ ...prev, [kind]: true }));
+
+    try {
+      const res = await axios.post(`${API}/upload`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      if (kind === "image") {
+        setImageUrl(res.data.url);
+        setImageName(file.name);
+      }
+
+      if (kind === "audio") {
+        setAudioUrl(res.data.url);
+        setAudioName(file.name);
+      }
+
+      if (kind === "video") {
+        setVideoUrl(res.data.url);
+        setVideoName(file.name);
+      }
+    } catch {
+      return;
+    } finally {
+      setUploading((prev) => ({ ...prev, [kind]: false }));
+    }
   };
 
   const publish = async () => {
@@ -567,6 +765,8 @@ function Editor({ currentUser, onNavigate }) {
         content: content.trim(),
         tags: selectedTags,
         image: imageUrl,
+        audio: audioUrl,
+        video: videoUrl,
       });
     } catch {
       return;
@@ -599,9 +799,52 @@ function Editor({ currentUser, onNavigate }) {
           ))}
         </div>
 
-        <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://images.unsplash.com/..." className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-gray-700 outline-none focus:border-blue-500/50 transition-all duration-200" />
+        <div className="grid gap-4">
+          <FilePicker
+            label="Cover Image"
+            accept="image/*"
+            uploading={uploading.image}
+            fileName={imageName}
+            onSelect={(file) => uploadMedia(file, "image")}
+            preview={
+              imageUrl ? (
+                <img src={imageUrl} alt="Upload preview" className="w-full h-48 object-cover rounded-2xl border border-white/10" />
+              ) : null
+            }
+          />
 
-        <button onClick={publish} className="px-6 py-3 rounded-2xl font-bold text-sm text-white transition-all duration-200 active:scale-95 hover:scale-[1.02] hover:shadow-lg hover:shadow-blue-900/20" style={{ background: "linear-gradient(135deg, #334155, #2563eb)" }}>
+          <FilePicker
+            label="Audio Story"
+            accept="audio/*"
+            uploading={uploading.audio}
+            fileName={audioName}
+            onSelect={(file) => uploadMedia(file, "audio")}
+            preview={
+              audioUrl ? (
+                <audio controls className="w-full">
+                  <source src={audioUrl} />
+                </audio>
+              ) : null
+            }
+          />
+
+          <FilePicker
+            label="Video Clip"
+            accept="video/*"
+            uploading={uploading.video}
+            fileName={videoName}
+            onSelect={(file) => uploadMedia(file, "video")}
+            preview={
+              videoUrl ? (
+                <video controls className="w-full rounded-2xl border border-white/10">
+                  <source src={videoUrl} />
+                </video>
+              ) : null
+            }
+          />
+        </div>
+
+        <button onClick={publish} disabled={uploading.image || uploading.audio || uploading.video} className="px-6 py-3 rounded-2xl font-bold text-sm text-white transition-all duration-200 active:scale-95 hover:scale-[1.02] hover:shadow-lg hover:shadow-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed" style={{ background: "linear-gradient(135deg, #334155, #2563eb)" }}>
           {saved ? "Published!" : "Publish Ink"}
         </button>
       </div>
@@ -680,6 +923,21 @@ function PostView({ postId, currentUser, onNavigate }) {
 
       {post.image && <img src={post.image} alt={post.title} className="w-full h-64 object-cover rounded-3xl mb-8" />}
 
+      {post.video && (
+        <video controls className="w-full rounded-3xl mb-8 border border-white/10">
+          <source src={post.video} />
+        </video>
+      )}
+
+      {post.audio && (
+        <div className={`${glassCard} p-4 mb-8`}>
+          <p className="text-white text-sm font-semibold mb-3">Audio narration</p>
+          <audio controls className="w-full">
+            <source src={post.audio} />
+          </audio>
+        </div>
+      )}
+
       <div className="text-gray-300 leading-loose text-lg space-y-4">
         {(post.content || "").split("\n").map((para, i) => (
           <p key={i}>{para}</p>
@@ -691,11 +949,13 @@ function PostView({ postId, currentUser, onNavigate }) {
           {post.likes} Sparks
         </button>
       </div>
+
+      <CommentsSection postId={postId} currentUser={currentUser} />
     </div>
   );
 }
 
-function Profile({ userId, currentUser, onNavigate }) {
+function Profile({ userId, currentUser, onNavigate, onSessionUpdate }) {
   const [user, setUser] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -725,6 +985,13 @@ function Profile({ userId, currentUser, onNavigate }) {
   if (!user) return <p className="text-gray-500 text-center mt-10">Profile not found</p>;
 
   const isOwn = userId === currentUser?._id;
+  const isFollowing = (currentUser?.followingIds || []).includes(userId);
+
+  const handleFollow = async () => {
+    const res = await axios.post(`${API}/follow/${userId}`, { userId: currentUser?._id });
+    setUser(res.data.targetUser);
+    onSessionUpdate(res.data.currentUser);
+  };
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
@@ -737,10 +1004,28 @@ function Profile({ userId, currentUser, onNavigate }) {
           <h1 className="text-white text-2xl font-bold" style={{ fontFamily: "Georgia, serif" }}>{user.name}</h1>
           <p className="text-gray-500 text-sm">@{user.handle}</p>
         </div>
+        {!isOwn && (
+          <button
+            onClick={handleFollow}
+            className={`px-5 py-2.5 rounded-2xl text-sm font-semibold transition-all duration-200 active:scale-95 ${
+              isFollowing
+                ? "bg-white/5 text-gray-300 border border-white/10"
+                : "text-white hover:shadow-lg hover:shadow-blue-900/20"
+            }`}
+            style={!isFollowing ? { background: "linear-gradient(135deg, #334155, #2563eb)" } : {}}
+          >
+            {isFollowing ? "Following" : "Follow"}
+          </button>
+        )}
       </div>
 
       <div className={`${glassCard} p-5 mb-8`}>
-        <p className="text-gray-400 text-sm leading-relaxed">{user.bio}</p>
+        <p className="text-gray-400 text-sm leading-relaxed mb-5">{user.bio}</p>
+        <div className="flex flex-wrap gap-3">
+          <CountPill label="Inks" value={posts.length} />
+          <CountPill label="Followers" value={user.followers || 0} />
+          <CountPill label="Following" value={user.following || 0} />
+        </div>
       </div>
 
       <h2 className="text-white font-semibold mb-5">
@@ -787,7 +1072,7 @@ function Profile({ userId, currentUser, onNavigate }) {
   );
 }
 
-function Discover({ onNavigate }) {
+function Discover({ currentUser, onNavigate, onSessionUpdate }) {
   const [posts, setPosts] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -815,6 +1100,12 @@ function Discover({ onNavigate }) {
 
   if (loading) return <p className="text-gray-500 text-center mt-10 animate-pulse">Loading...</p>;
 
+  const handleFollow = async (profileId) => {
+    const res = await axios.post(`${API}/follow/${profileId}`, { userId: currentUser?._id });
+    setUsers((prev) => prev.map((u) => (u._id === profileId ? res.data.targetUser : u)));
+    onSessionUpdate(res.data.currentUser);
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
       <h1 className="text-white text-2xl font-bold mb-8" style={{ fontFamily: "Georgia, serif" }}>Discover</h1>
@@ -823,13 +1114,28 @@ function Discover({ onNavigate }) {
           <h2 className="text-gray-400 text-sm uppercase tracking-widest font-semibold mb-4">Writers to Follow</h2>
           <div className="space-y-3">
             {users.map((u) => (
-              <button key={u._id} onClick={() => onNavigate("profile", u._id)} className={`w-full flex items-center gap-4 p-4 text-left hover:border-blue-500/20 hover:bg-white/[0.05] hover:scale-[1.02] transition-all duration-200 active:scale-95 ${glassCard}`}>
-                <Avatar user={u} size={48} />
-                <div className="flex-1 min-w-0">
+              <div key={u._id} className={`w-full flex items-center gap-4 p-4 text-left hover:border-blue-500/20 hover:bg-white/[0.05] hover:scale-[1.02] transition-all duration-200 ${glassCard}`}>
+                <button onClick={() => onNavigate("profile", u._id)} className="active:scale-95">
+                  <Avatar user={u} size={48} />
+                </button>
+                <button onClick={() => onNavigate("profile", u._id)} className="flex-1 min-w-0 text-left active:scale-95">
                   <p className="text-white font-semibold">{u.name}</p>
                   <p className="text-gray-500 text-sm truncate">{u.bio}</p>
-                </div>
-              </button>
+                </button>
+                {u._id !== currentUser?._id && (
+                  <button
+                    onClick={() => handleFollow(u._id)}
+                    className={`px-4 py-2 rounded-2xl text-xs font-semibold transition-all duration-200 active:scale-95 ${
+                      (currentUser?.followingIds || []).includes(u._id)
+                        ? "bg-white/5 text-gray-300 border border-white/10"
+                        : "text-white"
+                    }`}
+                    style={(currentUser?.followingIds || []).includes(u._id) ? {} : { background: "linear-gradient(135deg, #334155, #2563eb)" }}
+                  >
+                    {(currentUser?.followingIds || []).includes(u._id) ? "Following" : "Follow"}
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </div>
@@ -867,6 +1173,10 @@ export default function App() {
     setReady(true);
   }, []);
 
+  const updateCurrentUser = (nextUser) => {
+    persistSession(nextUser, setUser);
+  };
+
   const navigate = (viewName, param = null) => {
     setView(viewName);
     setViewParam(param);
@@ -879,7 +1189,7 @@ export default function App() {
   };
 
   if (!ready) return null;
-  if (!user) return <Landing onAuth={setUser} />;
+  if (!user) return <Landing onAuth={updateCurrentUser} />;
 
   const renderView = () => {
     switch (view) {
@@ -888,11 +1198,11 @@ export default function App() {
       case "editor":
         return <Editor currentUser={user} onNavigate={navigate} />;
       case "profile":
-        return <Profile userId={viewParam || user._id} currentUser={user} onNavigate={navigate} />;
+        return <Profile userId={viewParam || user._id} currentUser={user} onNavigate={navigate} onSessionUpdate={updateCurrentUser} />;
       case "post":
         return <PostView postId={viewParam} currentUser={user} onNavigate={navigate} />;
       case "discover":
-        return <Discover onNavigate={navigate} />;
+        return <Discover currentUser={user} onNavigate={navigate} onSessionUpdate={updateCurrentUser} />;
       default:
         return <Feed currentUser={user} onNavigate={navigate} />;
     }
