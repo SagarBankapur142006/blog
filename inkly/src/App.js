@@ -94,7 +94,7 @@ function Input({ label, value, onChange, placeholder, type = "text", prefix }) {
   );
 }
 
-function FilePicker({ label, accept, uploading, fileName, onSelect, preview }) {
+function FilePicker({ label, accept, uploading, fileName, onSelect, onClear, preview }) {
   return (
     <div className={`${glassCard} p-4`}>
       <div className="flex items-center justify-between gap-4 mb-3">
@@ -119,6 +119,18 @@ function FilePicker({ label, accept, uploading, fileName, onSelect, preview }) {
           />
         </label>
       </div>
+      {fileName && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 mb-3">
+          <p className="text-sm text-gray-300 truncate">{fileName}</p>
+          <button
+            type="button"
+            onClick={onClear}
+            className="w-7 h-7 rounded-full border border-white/10 bg-white/5 text-gray-300 hover:text-white hover:bg-red-500/20 hover:border-red-400/30 transition-all duration-200 active:scale-95"
+          >
+            x
+          </button>
+        </div>
+      )}
       {preview}
     </div>
   );
@@ -754,6 +766,23 @@ function Editor({ currentUser, onNavigate }) {
     }
   };
 
+  const clearMedia = (kind) => {
+    if (kind === "image") {
+      setImageUrl("");
+      setImageName("");
+    }
+
+    if (kind === "audio") {
+      setAudioUrl("");
+      setAudioName("");
+    }
+
+    if (kind === "video") {
+      setVideoUrl("");
+      setVideoName("");
+    }
+  };
+
   const publish = async () => {
     if (!currentUser?._id) return;
     if (!title.trim() || !content.trim() || selectedTags.length === 0) return;
@@ -806,6 +835,7 @@ function Editor({ currentUser, onNavigate }) {
             uploading={uploading.image}
             fileName={imageName}
             onSelect={(file) => uploadMedia(file, "image")}
+            onClear={() => clearMedia("image")}
             preview={
               imageUrl ? (
                 <img src={imageUrl} alt="Upload preview" className="w-full h-48 object-cover rounded-2xl border border-white/10" />
@@ -819,6 +849,7 @@ function Editor({ currentUser, onNavigate }) {
             uploading={uploading.audio}
             fileName={audioName}
             onSelect={(file) => uploadMedia(file, "audio")}
+            onClear={() => clearMedia("audio")}
             preview={
               audioUrl ? (
                 <audio controls className="w-full">
@@ -834,6 +865,7 @@ function Editor({ currentUser, onNavigate }) {
             uploading={uploading.video}
             fileName={videoName}
             onSelect={(file) => uploadMedia(file, "video")}
+            onClear={() => clearMedia("video")}
             preview={
               videoUrl ? (
                 <video controls className="w-full rounded-2xl border border-white/10">
@@ -1170,18 +1202,57 @@ export default function App() {
   useEffect(() => {
     const session = getSession();
     if (session) setUser(session);
+
+    const initialState = window.history.state;
+    if (initialState?.inklyView) {
+      setView(initialState.inklyView);
+      setViewParam(initialState.inklyParam ?? null);
+    } else {
+      window.history.replaceState(
+        { inklyView: "feed", inklyParam: null },
+        "",
+        window.location.href
+      );
+    }
+
     setReady(true);
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = (event) => {
+      const state = event.state;
+      if (!state?.inklyView) return;
+      setView(state.inklyView);
+      setViewParam(state.inklyParam ?? null);
+      setSearchQuery("");
+      setSearchOpen(false);
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   const updateCurrentUser = (nextUser) => {
     persistSession(nextUser, setUser);
   };
 
-  const navigate = (viewName, param = null) => {
+  const navigate = (viewName, param = null, options = {}) => {
+    const shouldPush = options.pushHistory !== false;
     setView(viewName);
     setViewParam(param);
     setSearchQuery("");
     setSearchOpen(false);
+
+    if (shouldPush) {
+      window.history.pushState(
+        { inklyView: viewName, inklyParam: param },
+        "",
+        window.location.href
+      );
+    }
 
     requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: "smooth" });
