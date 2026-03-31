@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
+const API = process.env.REACT_APP_API || "http://localhost:5000";
 
-const API = "http://localhost:5000";
 const TAGS = [
   "#Tech", "#Life", "#Design", "#Writing", "#Culture", "#Philosophy",
   "#Minimalism", "#UX", "#Wellness", "#Career", "#Personal", "#Art",
